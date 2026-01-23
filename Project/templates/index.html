@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHT11 실시간 온도/습도 모니터</title>
+    <style>
+        body {
+            font-family: "Noto Sans KR", sans-serif;
+            background: linear-gradient(135deg, #74ebd5, #ACB6E5);
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #333;
+        }
+
+        h1 {
+            font-size: 2em;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .data-box {
+            background: rgba(255, 255, 255, 0.85);
+            border-radius: 15px;
+            padding: 30px 40px;
+            text-align: center;
+            box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .value {
+            font-size: 3em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .label {
+            font-size: 1.2em;
+            color: #555;
+        }
+
+        .timestamp {
+            margin-top: 15px;
+            font-size: 0.9em;
+            color: #777;
+        }
+
+        /* 하한/상한 설정 박스 */
+        .limit-box {
+            background: rgba(255, 255, 255, 0.75);
+            padding: 20px;
+            border-radius: 15px;
+            width: 160px;
+            text-align: center;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .limit-title {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .limit-item {
+            margin: 10px 0;
+        }
+
+        .limit-value {
+            font-size: 1.4em;
+            margin: 5px 0;
+        }
+
+        button {
+            padding: 5px 10px;
+            margin: 3px;
+            font-size: 1em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background: #5cc4e8;
+            color: #fff;
+        }
+        button:hover {
+            background: #46a8c5;
+        }
+    </style>
+</head>
+<body>
+    <h1>DHT11 실시간 온도·습도</h1>
+
+    <!-- 가운데 측정값 박스를 기준으로 양 옆에 상하한 박스 배치 -->
+    <div class="container">
+
+        <!-- 왼쪽: 온도 상/하한 설정 -->
+        <div class="limit-box">
+            <div class="limit-title">🌡️ 온도 설정</div>
+
+            <div class="limit-item">
+                <div class="limit-value" id="temp_min">{{ tem_min }} °C</div>
+                <div>이상</div>
+                <button onclick="changeLimit('temp_min', -1)">⬇</button>
+                <button onclick="changeLimit('temp_min', 1)">⬆</button>
+            </div>
+
+            <div class="limit-item">
+                <div class="limit-value" id="temp_max">{{ tem_max }} °C</div>
+                <div>이하</div>
+                <button onclick="changeLimit('temp_max', -1)">⬇</button>
+                <button onclick="changeLimit('temp_max', 1)">⬆</button>
+            </div>
+        </div>
+
+        <!-- 가운데: 실시간 센서 데이터 -->
+        <div class="data-box">
+            <div class="label">🌡️ 온도</div>
+            <div class="value" id="temp">--.- °C</div>
+
+            <div class="label">💧 습도</div>
+            <div class="value" id="humi">--.- %</div>
+            <div class="timestamp" id="timestamp">업데이트 중...</div>
+
+            <!-- 체크박스 추가 -->
+            <div style="margin-top: 15px;">
+                <label style="font-size: 1.1em; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                <span>알람 설정</span>
+                <input type="checkbox" id="check_box" 
+                onclick="toggleCheckBox()" 
+                style="transform: scale(1.6); margin-left: 10px;"
+                {{ 'checked' if check_box else '' }}>
+                </label>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 습도 상/하한 설정 -->
+        <div class="limit-box">
+            <div class="limit-title">💧 습도 설정</div>
+
+            <div class="limit-item">
+                <div class="limit-value" id="humi_min">{{ humi_min }} %</div>
+                <div>이상</div>
+                <button onclick="changeLimit('humi_min', -1)">⬇</button>
+                <button onclick="changeLimit('humi_min', 1)">⬆</button>
+            </div>
+
+            <div class="limit-item">
+                <div class="limit-value" id="humi_max">{{ humi_max }} %</div>
+                <div>이하</div>
+                <button onclick="changeLimit('humi_max', -1)">⬇</button>
+                <button onclick="changeLimit('humi_max', 1)">⬆</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 상하한 조정 기능
+    function changeLimit(id, delta) {
+        const elem = document.getElementById(id);
+
+        // 기존 텍스트에서 숫자만 뽑기
+        let val = parseInt(elem.textContent);
+        if (isNaN(val)) val = 0;
+
+        const newVal = val + delta;
+
+        // 현재 값들 읽어오기
+        const temp_min = parseInt(document.getElementById('temp_min').textContent);
+        const temp_max = parseInt(document.getElementById('temp_max').textContent);
+        const humi_min = parseInt(document.getElementById('humi_min').textContent);
+        const humi_max = parseInt(document.getElementById('humi_max').textContent);
+
+        // 🔥 제한 조건 체크 ----------------------------------------
+        if (id === 'temp_min') {
+            if (temp_max - newVal < 5) return;  // 최소 5°C 유지
+        }
+        if (id === 'temp_max') {
+            if (newVal - temp_min < 5) return;  // 최소 5°C 유지
+        }
+        if (id === 'humi_min') {
+            if (humi_max - newVal < 10) return; // 최소 10% 유지
+        }
+        if (id === 'humi_max') {
+            if (newVal - humi_min < 10) return; // 최소 10% 유지
+        }
+
+        // id에 따라 단위 붙이기
+        if (id.startsWith('temp')) {
+            elem.textContent = newVal + " °C";
+        } else if (id.startsWith('humi')) {
+            elem.textContent = newVal + " %";
+        }
+
+        // 서버에 업데이트 전송
+        sendLimits();
+    }
+
+    // 서버에 현재 임계값 전송
+    function sendLimits() {
+        const data = {
+            tem_min: parseInt(document.getElementById('temp_min').textContent),
+            tem_max: parseInt(document.getElementById('temp_max').textContent),
+            humi_min: parseInt(document.getElementById('humi_min').textContent),
+            humi_max: parseInt(document.getElementById('humi_max').textContent)
+        };
+
+        fetch('/set_limits', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+    }
+
+    function toggleCheckBox() {
+    const checked = document.getElementById('check_box').checked;
+
+        fetch('/set_checkbox', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ check_box: checked })
+        });
+    }
+
+   
+    // 실시간 데이터 업데이트
+    async function fetchData() {
+        try {
+            const response = await fetch('/data', {cache: "no-store"});
+            const data = await response.json();
+
+            const temp = data.temperature !== null ? data.temperature.toFixed(1) : '--';
+            const humi = data.humidity !== null ? data.humidity.toFixed(1) : '--';
+
+            document.getElementById('temp').textContent = temp + " °C";
+            document.getElementById('humi').textContent = humi + " %";
+            document.getElementById('timestamp').textContent =
+                "업데이트: " + new Date().toLocaleTimeString();
+            // ------------------------
+            // 🌡️ 온도 + 💧 습도 동시 배경 처리
+            // ------------------------
+            const tempMin = parseInt(document.getElementById('temp_min').textContent);
+            const tempMax = parseInt(document.getElementById('temp_max').textContent);
+            const humiMin = parseInt(document.getElementById('humi_min').textContent);
+            const humiMax = parseInt(document.getElementById('humi_max').textContent);
+
+            // ------------------------
+// 배경 적용 로직 수정
+// ------------------------
+let bgLayers = [
+    "linear-gradient(135deg, #74ebd5, #ACB6E5)"  // 3. 기본 그라디언트 (맨 아래)
+];
+let bgSizes = ["cover"];
+let bgRepeats = ["no-repeat"];
+let bgBlendModes = ["normal"];
+
+
+// 2. 💧 습도 텍스처 (중간 레이어)
+if (data.humidity !== null) {
+    let texture = null;
+    if (data.humidity > humiMax) {
+        texture = 'url("/static/water_drop.png")'; // 고습
+    } else if (data.humidity < humiMin) {
+        texture = 'url("/static/dry_cracked.png")'; // 저습
+    }
+
+    if (texture) {
+        bgLayers.unshift(texture); // 2번째 레이어로 추가
+        bgSizes.unshift("40%"); // 습도 질감 크기
+        bgRepeats.unshift("repeat"); // 습도 질감 반복
+        bgBlendModes.unshift("overlay"); // 블렌드 모드
+    }
+}
+
+// 1. 🌡️ 온도 오버레이 (최상위 레이어)
+if (data.temperature !== null) {
+    let overlay = null;
+    if (data.temperature < tempMin) {
+        // 차가운 파란 overlay
+        overlay = `linear-gradient(rgba(0, 80, 255, 0.40), rgba(0, 40, 160, 0.40))`;
+    } else if (data.temperature > tempMax) {
+        // 뜨거운 붉은 overlay
+        overlay = `linear-gradient(rgba(255, 0, 0, 0.60), rgba(150, 0, 0, 0.60))`;
+    }
+
+    if (overlay) {
+        bgLayers.unshift(overlay); // 1번째 레이어로 추가
+        bgSizes.unshift("cover"); // 온도 오버레이 크기
+        bgRepeats.unshift("no-repeat"); // 온도 오버레이 반복 안 함
+        bgBlendModes.unshift("normal"); // 블렌드 모드
+    }
+}
+
+
+// ------------------------
+// 최종 배경 적용
+// ------------------------
+document.body.style.background = bgLayers.join(",");
+document.body.style.transition = "background 1s ease";
+document.body.style.backgroundSize = bgSizes.join(",");
+document.body.style.backgroundRepeat = bgRepeats.join(",");
+document.body.style.backgroundBlendMode = bgBlendModes.join(",");
+// ------------------------
+        } catch (error) {
+            console.error("데이터 갱신 오류:", error);
+        }
+    }
+
+
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>
